@@ -200,6 +200,7 @@ def edit_profile(request):
                 my_vouches=UserProfile.objects.filter(vouched_by=profile),
                 profile=request.user.userprofile,
                 apps=user.apiapp_set.filter(is_active=True),
+                appsv2=profile.apps.filter(enabled=True),
                 language_formset=language_formset,
                 mapbox_id=settings.MAPBOX_MAP_ID)
 

@@ -84,7 +84,8 @@ TEMPLATE_CONTEXT_PROCESSORS = get_template_context_processors(
 JINGO_EXCLUDE_APPS = [
     'admin',
     'autocomplete_light',
-    'browserid'
+    'browserid',
+    'rest_framework',
 ]
 
 
@@ -314,3 +315,18 @@ HUMANSTXT_URL = urljoin(STATIC_URL, 'humans.txt')
 
 # This must be set in local for the maps to work
 MAPBOX_MAP_ID = ''
+
+REST_FRAMEWORK = {
+    # Use hyperlinked styles by default.
+    # Only used if the `serializer_class` attribute is not set on a view.
+    'DEFAULT_MODEL_SERIALIZER_CLASS':
+        'rest_framework.serializers.HyperlinkedModelSerializer',
+
+    # Use Django's standard `django.contrib.auth` permissions,
+    # or allow read-only access for unauthenticated users.
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+
+    'PAGINATE_BY': 10
+}
