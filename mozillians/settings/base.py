@@ -10,7 +10,6 @@ from funfactory.settings_base import *  # noqa
 from funfactory.settings_base import JINJA_CONFIG as funfactory_JINJA_CONFIG
 from urlparse import urljoin
 
-from mozillians.users.helpers import calculate_username
 from django.utils.functional import lazy
 
 # Log settings
@@ -76,8 +75,7 @@ TEMPLATE_LOADERS = (
 )
 
 TEMPLATE_CONTEXT_PROCESSORS = get_template_context_processors(
-    append=['django_browserid.context_processors.browserid',
-            'mozillians.common.context_processors.current_year',
+    append=['mozillians.common.context_processors.current_year',
             'mozillians.common.context_processors.canonical_path'])
 
 
@@ -122,12 +120,12 @@ SUPPORTED_NONLOCALES = list(SUPPORTED_NONLOCALES) + [
 
 AUTHENTICATION_BACKENDS = (
     'django.contrib.auth.backends.ModelBackend',
-    'django_browserid.auth.BrowserIDBackend',
+    'mozillians.users.authbackend.MozilliansAuthBackend'
 )
 
 # BrowserID creates a user if one doesn't exist.
 BROWSERID_CREATE_USER = True
-BROWSERID_USERNAME_ALGO = calculate_username
+USERNAME_MAX_LENGTH = 30
 
 # On Login, we redirect through register.
 LOGIN_URL = '/'
@@ -288,7 +286,6 @@ def _request_args():
 
     return args
 BROWSERID_REQUEST_ARGS = lazy(_request_args, dict)()
-BROWSERID_VERIFY_CLASS = 'mozillians.phonebook.views.BrowserIDVerify'
 
 # Pagination: Items per page.
 ITEMS_PER_PAGE = 24
@@ -300,3 +297,5 @@ HUMANSTXT_GITHUB_REPO = 'https://api.github.com/repos/mozilla/mozillians/contrib
 HUMANSTXT_LOCALE_REPO = 'https://svn.mozilla.org/projects/l10n-misc/trunk/mozillians/locales'
 HUMANSTXT_FILE = os.path.join(STATIC_ROOT, 'humans.txt')
 HUMANSTXT_URL = urljoin(STATIC_URL, 'humans.txt')
+
+BROWSERID_VERIFY_CLASS = 'mozillians.phonebook.views.BrowserIDVerify'

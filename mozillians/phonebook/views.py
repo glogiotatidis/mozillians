@@ -1,5 +1,5 @@
 from django.conf import settings
-from django.contrib import auth
+from django.contrib.auth.views import logout as auth_logout
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
@@ -9,7 +9,7 @@ from django.shortcuts import get_object_or_404, render
 from django.views.decorators.cache import cache_page, never_cache
 from django.views.decorators.http import require_POST
 
-from django_browserid.base import get_audience, verify
+# from django_browserid.base import get_audience, verify
 from django_browserid.views import Verify
 from funfactory.helpers import urlparams
 from funfactory.urlresolvers import reverse
@@ -27,8 +27,23 @@ from mozillians.users.managers import EMPLOYEES, MOZILLIANS, PUBLIC, PRIVILEGED
 from mozillians.users.models import COUNTRIES, UserProfile
 
 
+from django_browserid.http import JSONResponse
+
+
 class BrowserIDVerify(Verify):
-    def form_valid(self, form):
+    @property
+    def failure_url(self):
+        if self.change_email:
+            return urlparams(reverse('phonebook:profile_edit'), bid_login_failed=1)
+        return super(BrowserIDVerify, self).failure_url
+
+    @property
+    def success_url(self):
+        if self.change_email:
+            return reverse('phonebook:profile_view', self.user.username)
+        return super(BrowserIDVerify, self).success_url
+
+    def login_success(self):
         """Custom form validation to support email changing.
 
         If user is already authenticated and reaches this point, it's
@@ -37,27 +52,23 @@ class BrowserIDVerify(Verify):
 
         Otherwise continue with the default django-browserid verification.
         """
+        import ipdb
+        ipdb.set_trace()
+        self.change_email = False
         if not self.request.user.is_authenticated():
-            return super(BrowserIDVerify, self).form_valid(form)
+            return super(BrowserIDVerify, self).login_success()
 
-        failure_url = urlparams(reverse('phonebook:profile_edit'), bid_login_failed=1)
-        self.assertion = form.cleaned_data['assertion']
-        self.audience = get_audience(self.request)
-        result = verify(self.assertion, self.audience)
-        if not result:
-            messages.error(self.request, _('Authentication failed.'))
-            return redirect(failure_url)
-
-        email = result['email']
+        self.change_email = True
+        email = self.user.email
 
         if User.objects.filter(email=email).exists():
             messages.error(self.request, _('Email already exists in the database.'))
             return redirect('phonebook:logout')
 
-        user = self.request.user
-        user.email = email
-        user.save()
-        return redirect('phonebook:profile_view', user.username)
+        return JSONResponse({
+            'email': self.user.email,
+            'redirect': '/'
+        })
 
 
 @allow_unvouched
@@ -370,7 +381,7 @@ def logout(request):
     always returns an HTTP redirect instead.
 
     """
-    return auth.views.logout(request, template_name='phonebook/logout.html')
+    return auth_logout(request, template_name='phonebook/logout.html')
 
 
 @allow_public
