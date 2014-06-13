@@ -9,6 +9,7 @@ from django.core.exceptions import ValidationError
 from django.core.files.uploadedfile import UploadedFile
 from django.forms.models import BaseInlineFormSet, inlineformset_factory
 
+import django_filters
 import happyforms
 from PIL import Image
 from tower import ugettext as _, ugettext_lazy as _lazy
@@ -63,12 +64,16 @@ class SearchForm(happyforms.Form):
     limit = forms.IntegerField(
         widget=forms.HiddenInput, required=False, min_value=1,
         max_value=settings.ITEMS_PER_PAGE)
-    include_non_vouched = forms.BooleanField(
-        label=_lazy(u'Include non-vouched'), required=False)
 
     def clean_limit(self):
         limit = self.cleaned_data['limit'] or settings.ITEMS_PER_PAGE
         return limit
+
+
+class SearchFilter(django_filters.FilterSet):
+    class Meta:
+        model = UserProfile
+        fields = ['is_vouched']
 
 
 class UserForm(happyforms.ModelForm):

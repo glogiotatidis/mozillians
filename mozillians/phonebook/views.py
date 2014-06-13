@@ -240,23 +240,30 @@ def search(request):
     people = []
     show_pagination = False
     form = forms.SearchForm(request.GET)
+    filter = forms.SearchFilter(request.GET)
     groups = None
     functional_areas = None
 
     if form.is_valid():
         query = form.cleaned_data.get('q', u'')
         limit = form.cleaned_data['limit']
-        include_non_vouched = form.cleaned_data['include_non_vouched']
         page = request.GET.get('page', 1)
         functional_areas = Group.get_functional_areas()
         public = not (request.user.is_authenticated()
                       and request.user.userprofile.is_vouched)
 
-        profiles = UserProfile.search(query, public=public,
-                                      include_non_vouched=include_non_vouched)
-        if not public:
-            groups = Group.search(query)
+        # Prepare the filters.
+        filter = forms.SearchFilter(request.GET)
+        profiles_matching_filter = list(filter.qs.values_list('id', flat=True))
 
+        # Prepare an ElasticSearch query.
+        profiles = UserProfile.search(query, public=public)
+
+        # Filter ElasticSearch query to include only profiles the
+        # match the filters.
+        profiles = profiles.filter(id__in=profiles_matching_filter)
+
+        # Paginate results.
         paginator = Paginator(profiles, limit)
 
         try:
@@ -271,8 +278,12 @@ def search(request):
 
         show_pagination = paginator.count > settings.ITEMS_PER_PAGE
 
+        if not public:
+            groups = Group.search(query)
+
     d = dict(people=people,
              search_form=form,
+             filter=filter,
              limit=limit,
              show_pagination=show_pagination,
              groups=groups,

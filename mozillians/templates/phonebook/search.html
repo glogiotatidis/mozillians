@@ -41,10 +41,8 @@
       {{ _('Advanced Options') }}
     </button>
     <div class="search-options">
-      <div class="field">
-        {{ search_form.include_non_vouched }}
-        {{ search_form.include_non_vouched.label_tag() }}
-      </div>
+      {{ filter.form.as_p() }}
+
     </div>
   </form>
   {% if not search_form.cleaned_data %}

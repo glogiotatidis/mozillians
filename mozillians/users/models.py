@@ -357,7 +357,7 @@ class UserProfile(UserProfilePrivacyModel, SearchMixin):
                 'date_joined': {'type': 'date'}}}
 
     @classmethod
-    def search(cls, query, include_non_vouched=False, public=False):
+    def search(cls, query, public=False):
         """Sensible default search for UserProfiles."""
         query = query.lower().strip()
         fields = ('username', 'bio__text', 'email', 'ircname',
@@ -381,10 +381,6 @@ class UserProfile(UserProfilePrivacyModel, SearchMixin):
                          bio__text=2).query(or_=q))
 
         s = s.order_by('_score', 'name')
-
-        if not include_non_vouched:
-            s = s.filter(is_vouched=True)
-
         return s
 
     @property
