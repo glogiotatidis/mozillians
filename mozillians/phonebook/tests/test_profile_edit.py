@@ -1,4 +1,3 @@
-from django.core.exceptions import ValidationError
 from django.core.urlresolvers import reverse
 
 from mock import patch
@@ -157,6 +156,5 @@ class LocationEditTests(TestCase):
         self.data.update(_get_privacy_fields(MOZILLIANS))
 
         form = ProfileForm(data=self.data)
-        with self.assertRaises(ValidationError):
-            ok_(not form.is_valid())
-            form.clean()
+        ok_(not form.is_valid())
+        ok_('saveregion' in form.errors)
