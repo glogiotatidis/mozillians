@@ -314,6 +314,13 @@ def search_plugin(request):
 
 def invite(request):
     profile = request.user.userprofile
+    if not profile.can_vouch:
+        msg = 'You need at least {0} {1} to invite new Mozillians.'
+        threshold = settings.CAN_VOUCH_THRESHOLD
+        messages.warning(request, msg.format(threshold,
+                                             'vouches' if threshold > 1 else 'vouch'))
+        return redirect('phonebook:home')
+
     invite_form = forms.InviteForm(request.POST or None,
                                    instance=Invite(inviter=profile))
     if invite_form.is_valid():

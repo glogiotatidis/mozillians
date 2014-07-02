@@ -266,6 +266,13 @@ class VouchForm(happyforms.Form):
 
 class InviteForm(happyforms.ModelForm):
     message = forms.CharField(label=_lazy(u'Message'), required=False, widget=forms.Textarea())
+    reason = forms.CharField(
+        label=_lazy(u'Provide a reason for vouching with relevant links'),
+        widget=forms.Textarea(attrs={'maxlength': 500}),
+        max_length=500,
+        error_messages={'required': _(u'You must enter a reason for vouching for this person.')}
+    )
+    recipient = forms.EmailField(label="Recipient's email")
 
     def clean_recipient(self):
         recipient = self.cleaned_data['recipient']
