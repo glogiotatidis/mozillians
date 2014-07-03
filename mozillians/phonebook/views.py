@@ -314,26 +314,30 @@ def search_plugin(request):
 
 def invite(request):
     profile = request.user.userprofile
-    if not profile.can_vouch:
-        msg = 'You need at least {0} {1} to invite new Mozillians.'
-        threshold = settings.CAN_VOUCH_THRESHOLD
-        messages.warning(request, msg.format(threshold,
-                                             'vouches' if threshold > 1 else 'vouch'))
-        return redirect('phonebook:home')
+    invite_form = None
+    vouch_form = None
+    if profile.can_vouch:
+        invite_form = forms.InviteForm(request.POST or None,
+                                       instance=Invite(inviter=profile))
+        vouch_form = forms.VouchForm(request.POST or None)
 
-    invite_form = forms.InviteForm(request.POST or None,
-                                   instance=Invite(inviter=profile))
-    if invite_form.is_valid():
+    if invite_form and vouch_form and invite_form.is_valid() and vouch_form.is_valid():
+        invite_form.instance.reason = vouch_form.cleaned_data['description']
         invite = invite_form.save()
         invite.send(sender=profile, personal_message=invite_form.cleaned_data['message'])
         msg = _(u"%s has been invited to Mozillians. They'll receive an email "
                 u"with instructions on how to join. You can "
                 u"invite another Mozillian if you like.") % invite.recipient
         messages.success(request, msg)
-        return redirect('phonebook:home')
+        return redirect('phonebook:invite')
 
     return render(request, 'phonebook/invite.html',
-                  {'invite_form': invite_form, 'invites': profile.invites.all()})
+                  {
+                      'invite_form': invite_form,
+                      'vouch_form': vouch_form,
+                      'invites': profile.invites.all(),
+                      'vouch_threshold': settings.CAN_VOUCH_THRESHOLD,
+                  })
 
 
 @require_POST

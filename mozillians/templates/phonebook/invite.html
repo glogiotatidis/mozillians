@@ -8,63 +8,37 @@
   <h1>{{ _('Invite a Mozillian') }}</h1>
 
   <p>
-    {% trans %}
-      If you'd like to vouch for a new Mozillian and send an invitation to create a profile, please fill out
-      this form:
-    {% endtrans %}
+    {% if invite_form %}
+      {% trans vouching_faq='' %}
+        If you want to invite a new Mozillian please fill out the
+        following form. <strong>Note</strong>: Inviting a new user is like
+        vouching. <a href="{{ vouching_faq }}">Read more about vouching.</a>
+      {% endtrans %}
+    {% else %}
+      {% trans %}
+        You cannot currently send invites. You need at least {{ vouch_threshold }} vouches.
+      {% endtrans %}
+    {% endif %}
   </p>
 
-  {% if invite_form.errors %}
-    <div class="alert alert-error">
-      {{ _('Please correct the errors below.') }}
+  {% if invite_form %}
+    {% if invite_form.errors or vouch_form.errors %}
+      <div class="alert alert-error">
+        {{ _('Please correct the errors below.') }}
+      </div>
+    {% endif %}
+
+    <div class="invite-box">
+      <div class="margins">
+        <form method="POST" action="{{ url('phonebook:invite') }}" autocomplete="off">
+          {{ csrf() }}
+          {{ mozillians_field(invite_form.recipient) }}
+          {{ mozillians_field(invite_form.message) }}
+          {% include "phonebook/includes/profile_vouch.html" %}
+        </form>
+      </div>
     </div>
   {% endif %}
-
-  <div class="invite-box">
-    <div class="margins">
-      <form method="POST" action="{{ url('phonebook:invite') }}" autocomplete="off">
-        {{ csrf() }}
-        {{ mozillians_field(invite_form.recipient) }}
-        {{ mozillians_field(invite_form.message) }}
-        {{ mozillians_field(invite_form.reason) }}
-        {% trans url='http://daringfireball.net/projects/markdown/syntax' %}
-          Use <a href="{{ url }}">Markdown</a> for bold, italic, lists and links.
-        {% endtrans %}
-        {{ _('Characters remaining:') }}
-        <span class="character-countdown">500</span>
-        <div id="invitation-submit">
-          <button class="button" type="submit"><i class="icon-key"></i>
-            {{ _('Send invite') }}
-          </button>
-        </div>
-        <p>
-          {% trans %}
-            <strong>Note:</strong>
-            Your name and email will be sent to whomever you invite.
-          {% endtrans %}
-        </p>
-        <p>
-          {{ _('Only vouch for users who have made significant contributions and are at least 13 years old.') }}
-        </p>
-        <p>
-          {{ _('Once vouched, new Mozillian will be able to:') }}
-        </p>
-        <ul>
-          <li>{{ _('View all profiles and join groups.') }}</li>
-          <li>{{ _('Access special video content on Air Mozilla.') }}</li>
-          <li>{{ _('Join the Mozilla Exchange Yammer network.') }}</li>
-          <li>{{ _('Use other Mozilla apps as a vouched user.') }}</li>
-        </ul>
-        <p>
-          {{ _('Vouchers cannot be edited or retracted.') }}
-          <br><br>
-          {% trans vouching_faq='' %}
-            <a href="{{ vouching_faq }}">Read more about vouching.</a>
-          {% endtrans %}
-        </p>
-      </form>
-    </div>
-  </div>
 
   {% if invites.exists() %}
     <h1>{{ _('Your Invites') }}</h1>
