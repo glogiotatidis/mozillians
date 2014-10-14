@@ -44,3 +44,6 @@
 [submodule "vendor-local/src/django-browserid"]
 	path = vendor-local/src/django-browserid
 	url = git://github.com/mozilla/django-browserid/
+[submodule "vendor-local/src/elasticsearch-py"]
+	path = vendor-local/src/elasticsearch-py
+	url = git@github.com:elasticsearch/elasticsearch.git
