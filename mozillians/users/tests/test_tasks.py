@@ -7,7 +7,6 @@ from django.test.utils import override_settings
 from mock import MagicMock, Mock, call, patch
 
 from nose.tools import eq_, ok_
-from pyes.exceptions import ElasticSearchException
 
 from mozillians.common.tests import TestCase
 from mozillians.groups.tests import GroupFactory
@@ -47,22 +46,17 @@ class ElasticSearchIndexTests(TestCase):
     @patch('mozillians.users.tasks.get_es')
     def test_index_objects(self, get_es_mock):
         user_1 = UserFactory.create()
-        user_2 = UserFactory.create()
-        model = MagicMock()
-        model.objects.filter.return_value = [
-            user_1.userprofile, user_2.userprofile]
+        # user_2 = UserFactory.create()
+        mapping_type = MagicMock()
+        # mapping_type.get_model().objects.filter.return_value = [
+        #     user_1.userprofile, user_2.userprofile]
         index_objects(
-            model, [user_1.userprofile.id, user_2.userprofile.id], False)
-        model.objects.assert_has_calls([
-            call.filter(id__in=[user_1.userprofile.id, user_2.userprofile.id])])
-        model.index.assert_has_calls([
-            call(model.extract_document(), bulk=True, id_=user_1.userprofile.id,
+            mapping_type, [1,2], False)
+        mapping_type.bulk_index.assert_has_calls([
+            call(mapping_type.extract_document(), id_=user_1.userprofile.id,
                  es=get_es_mock(), public_index=False),
-            call(model.extract_document(), bulk=True, id_=user_2.userprofile.id,
+            call(mapping_type.extract_document(), id_=user_2.userprofile.id,
                  es=get_es_mock(), public_index=False)])
-        model.refresh_index.assert_has_calls([
-            call(es=get_es_mock()),
-            call(es=get_es_mock())])
 
     @patch('mozillians.users.tasks.get_es')
     def test_index_objects_public(self, get_es_mock):
@@ -95,12 +89,12 @@ class ElasticSearchIndexTests(TestCase):
             call.unindex(es=get_es_mock(), public_index='foo', id=2),
             call.unindex(es=get_es_mock(), public_index='foo', id=3)])
 
-    def test_unindex_raises_not_found_exception(self):
-        exception = ElasticSearchException(
-            error=404, status=404, result={'not found': 'not found'})
-        model = Mock()
-        model.unindex = Mock(side_effect=exception)
-        unindex_objects(model, [1, 2, 3], 'foo')
+    # def test_unindex_raises_not_found_exception(self):
+    #     exception = ElasticSearchException(
+    #         error=404, status=404, result={'not found': 'not found'})
+    #     model = Mock()
+    #     model.unindex = Mock(side_effect=exception)
+    #     unindex_objects(model, [1, 2, 3], 'foo')
 
 
 class BasketTests(TestCase):

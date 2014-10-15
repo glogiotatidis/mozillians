@@ -15,8 +15,8 @@ from django.template.loader import get_template
 
 
 import basket
-from elasticutils.contrib.django import S, get_es
-from elasticutils.contrib.django.models import SearchMixin
+from elasticsearch.helpers import bulk_index as elasticsearc_bulk_index
+from elasticutils.contrib.django import Indexable, MappingType, S, get_es
 from funfactory.urlresolvers import reverse
 from product_details import product_details
 from pytz import common_timezones
@@ -81,7 +81,7 @@ class PrivacyAwareS(S):
             while True:
                 obj = self._iterator.next()
                 obj._privacy_level = getattr(self, '_privacy_level', None)
-                yield obj
+                yield obj.get_object()
         return _generator()
 
 
@@ -144,14 +144,15 @@ class UserProfilePrivacyModel(models.Model):
                 else:
                     default = field.get_default()
                 privacy_fields[name] = default
-            # HACK: There's not really an email field on UserProfile, but it's faked with a property
+            # HACK: There's not really an email field on UserProfile,
+            # but it's faked with a property
             privacy_fields['email'] = u''
 
             cls.CACHED_PRIVACY_FIELDS = privacy_fields
         return cls.CACHED_PRIVACY_FIELDS
 
 
-class UserProfile(UserProfilePrivacyModel, SearchMixin):
+class UserProfile(UserProfilePrivacyModel):
     REFERRAL_SOURCE_CHOICES = (
         ('direct', 'Mozillians'),
         ('contribute', 'Get Involved'),
@@ -224,6 +225,14 @@ class UserProfile(UserProfilePrivacyModel, SearchMixin):
                                        choices=REFERRAL_SOURCE_CHOICES,
                                        default='direct')
 
+    def __unicode__(self):
+        """Return this user's name when their profile is called."""
+        return self.display_name
+
+    def get_absolute_url(self):
+        return reverse('phonebook:profile_view', args=[self.user.username])
+
+
     class Meta:
         db_table = 'profile'
         ordering = ['full_name']
@@ -277,6 +286,7 @@ class UserProfile(UserProfilePrivacyModel, SearchMixin):
 
         return vouches_made
 
+    # Properties section
     @property
     def _vouches_made(self):
         return self._vouches('vouches_made')
@@ -284,109 +294,6 @@ class UserProfile(UserProfilePrivacyModel, SearchMixin):
     @property
     def _vouches_received(self):
         return self._vouches('vouches_received')
-
-    @classmethod
-    def extract_document(cls, obj_id, obj=None):
-        """Method used by elasticutils."""
-        if obj is None:
-            obj = cls.objects.get(pk=obj_id)
-        d = {}
-
-        attrs = ('id', 'is_vouched', 'ircname',
-                 'allows_mozilla_sites', 'allows_community_sites')
-        for a in attrs:
-            data = getattr(obj, a)
-            if isinstance(data, basestring):
-                data = data.lower()
-            d.update({a: data})
-
-        d['country'] = [obj.geo_country.name, obj.geo_country.code] if obj.geo_country else None
-        d['region'] = obj.geo_region.name if obj.geo_region else None
-        d['city'] = obj.geo_city.name if obj.geo_city else None
-
-        # user data
-        attrs = ('username', 'email', 'last_login', 'date_joined')
-        for a in attrs:
-            data = getattr(obj.user, a)
-            if isinstance(data, basestring):
-                data = data.lower()
-            d.update({a: data})
-
-        d.update(dict(fullname=obj.full_name.lower()))
-        d.update(dict(name=obj.full_name.lower()))
-        d.update(dict(bio=obj.bio))
-        d.update(dict(has_photo=bool(obj.photo)))
-
-        for attribute in ['groups', 'skills']:
-            groups = []
-            for g in getattr(obj, attribute).all():
-                groups.extend(g.aliases.values_list('name', flat=True))
-            d[attribute] = groups
-        # Add to search index language code, language name in English
-        # native lanugage name.
-        languages = []
-        for code in obj.languages.values_list('code', flat=True):
-            languages.append(code)
-            languages.append(langcode_to_name(code, 'en_US').lower())
-            languages.append(langcode_to_name(code, code).lower())
-        d['languages'] = list(set(languages))
-        return d
-
-    @classmethod
-    def get_mapping(cls):
-        """Returns an ElasticSearch mapping."""
-        return {
-            'properties': {
-                'id': {'type': 'integer'},
-                'name': {'type': 'string', 'index': 'not_analyzed'},
-                'fullname': {'type': 'string', 'analyzer': 'standard'},
-                'email': {'type': 'string', 'index': 'not_analyzed'},
-                'ircname': {'type': 'string', 'index': 'not_analyzed'},
-                'username': {'type': 'string', 'index': 'not_analyzed'},
-                'country': {'type': 'string', 'analyzer': 'whitespace'},
-                'region': {'type': 'string', 'analyzer': 'whitespace'},
-                'city': {'type': 'string', 'analyzer': 'whitespace'},
-                'skills': {'type': 'string', 'analyzer': 'whitespace'},
-                'groups': {'type': 'string', 'analyzer': 'whitespace'},
-                'languages': {'type': 'string', 'index': 'not_analyzed'},
-                'bio': {'type': 'string', 'analyzer': 'snowball'},
-                'is_vouched': {'type': 'boolean'},
-                'allows_mozilla_sites': {'type': 'boolean'},
-                'allows_community_sites': {'type': 'boolean'},
-                'photo': {'type': 'boolean'},
-                'last_updated': {'type': 'date'},
-                'date_joined': {'type': 'date'}}}
-
-    @classmethod
-    def search(cls, query, include_non_vouched=False, public=False):
-        """Sensible default search for UserProfiles."""
-        query = query.lower().strip()
-        fields = ('username', 'bio__text', 'email', 'ircname',
-                  'country__text', 'country__text_phrase',
-                  'region__text', 'region__text_phrase',
-                  'city__text', 'city__text_phrase',
-                  'fullname__text', 'fullname__text_phrase',
-                  'fullname__prefix', 'fullname__fuzzy'
-                  'groups__text')
-        s = PrivacyAwareS(cls)
-        if public:
-            s = s.privacy_level(PUBLIC)
-        s = s.indexes(cls.get_index(public))
-
-        if query:
-            q = dict((field, query) for field in fields)
-            s = (s.boost(fullname__text_phrase=5, username=5, email=5,
-                         ircname=5, fullname__text=4, country__text_phrase=4,
-                         region__text_phrase=4, city__text_phrase=4,
-                         fullname__prefix=3, fullname__fuzzy=2,
-                         bio__text=2).query(or_=q))
-
-        s = s.order_by('_score', 'name')
-
-        if not include_non_vouched:
-            s = s.filter(is_vouched=True)
-
-        return s
 
     @property
     def accounts(self):
@@ -489,13 +396,6 @@ class UserProfile(UserProfilePrivacyModel, SearchMixin):
         if vouches:
             return vouches[0].date
         return None
-
-    def __unicode__(self):
-        """Return this user's name when their profile is called."""
-        return self.display_name
-
-    def get_absolute_url(self):
-        return reverse('phonebook:profile_view', args=[self.user.username])
 
     def set_instance_privacy_level(self, level):
         """Sets privacy level of instance."""
@@ -700,43 +600,6 @@ class UserProfile(UserProfilePrivacyModel, SearchMixin):
         # create foreign keys without a database id.
         self.auto_vouch()
 
-    @classmethod
-    def get_index(cls, public_index=False):
-        if public_index:
-            return settings.ES_INDEXES['public']
-        return settings.ES_INDEXES['default']
-
-    @classmethod
-    def refresh_index(cls, timesleep=0, es=None, public_index=False):
-        if es is None:
-            es = get_es()
-
-        es.refresh(cls.get_index(public_index), timesleep=timesleep)
-
-    @classmethod
-    def index(cls, document, id_=None, bulk=False, force_insert=False,
-              es=None, public_index=False):
-        """ Overide elasticutils.index() to support more than one index
-        for UserProfile model.
-
-        """
-        if bulk and es is None:
-            raise ValueError('bulk is True, but es is None')
-
-        if es is None:
-            es = get_es()
-
-        es.index(document, index=cls.get_index(public_index),
-                 doc_type=cls.get_mapping_type(),
-                 id=id_, bulk=bulk, force_insert=force_insert)
-
-    @classmethod
-    def unindex(cls, id, es=None, public_index=False):
-        if es is None:
-            es = get_es()
-
-        es.delete(cls.get_index(public_index), cls.get_mapping_type(), id)
-
     def reverse_geocode(self):
         """
         Use the user's lat and lng to set their city, region, and country.
@@ -768,6 +631,183 @@ class UserProfile(UserProfilePrivacyModel, SearchMixin):
                 logger.error('Got back NONE from reverse_geocode on %s, %s' % (self.lng, self.lat))
 
 
+class UserProfileMappingType(MappingType, Indexable):
+    @classmethod
+    def get_index(cls, public_index=False):
+        if public_index:
+            return settings.ES_INDEXES['public']
+        return settings.ES_INDEXES['default']
+
+    @classmethod
+    def get_mapping_type_name(cls):
+        return settings.ES_MAPPING_TYPE_NAME
+
+    @classmethod
+    def get_model(cls):
+        return UserProfile
+
+    @classmethod
+    def get_es(cls):
+        return get_es(urls=settings.ES_URLS)
+
+    @classmethod
+    def get_mapping(cls):
+        """Returns an ElasticSearch mapping."""
+        return {
+            'properties': {
+                'id': {'type': 'integer'},
+                'name': {'type': 'string', 'index': 'not_analyzed'},
+                'fullname': {'type': 'string', 'analyzer': 'standard'},
+                'email': {'type': 'string', 'index': 'not_analyzed'},
+                'ircname': {'type': 'string', 'index': 'not_analyzed'},
+                'username': {'type': 'string', 'index': 'not_analyzed'},
+                'country': {'type': 'string', 'analyzer': 'whitespace'},
+                'region': {'type': 'string', 'analyzer': 'whitespace'},
+                'city': {'type': 'string', 'analyzer': 'whitespace'},
+                'skills': {'type': 'string', 'analyzer': 'whitespace'},
+                'groups': {'type': 'string', 'analyzer': 'whitespace'},
+                'languages': {'type': 'string', 'index': 'not_analyzed'},
+                'bio': {'type': 'string', 'analyzer': 'snowball'},
+                'is_vouched': {'type': 'boolean'},
+                'allows_mozilla_sites': {'type': 'boolean'},
+                'allows_community_sites': {'type': 'boolean'},
+                'photo': {'type': 'boolean'},
+                'last_updated': {'type': 'date'},
+                'date_joined': {'type': 'date'}
+            }
+        }
+
+    @classmethod
+    def index(cls, document, id_=None, overwrite_existing=False, es=None,
+              public_index=False):
+        """ Overide elasticutils.index() to support more than one index
+        for UserProfile model.
+
+        """
+        if es is None:
+            es = get_es()
+
+        es.index(document, index=cls.get_index(public_index),
+                 doc_type=cls.get_mapping_type(),
+                 id=id_, overwrite_existing=overwrite_existing)
+
+    @classmethod
+    def refresh_index(cls, es=None, public_index=False):
+        if es is None:
+            es = get_es()
+        index = cls.get_index(public_index)
+        # TODO: fail silently?
+        # if es.indices.exists(index):
+        es.indices.refresh(index=index)
+
+    @classmethod
+    def unindex(cls, id, es=None, public_index=False):
+        if es is None:
+            es = get_es()
+
+        # TODO: fail silently?
+        es.indices.delete(index=cls.get_index(public_index))
+
+    @classmethod
+    def extract_document(cls, obj_id, obj=None):
+        """Method used by elasticutils."""
+        if obj is None:
+            obj = cls.get_model().get(pk=obj_id)
+        doc = {}
+
+        attrs = ('id', 'is_vouched', 'ircname',
+                 'allows_mozilla_sites', 'allows_community_sites')
+        for a in attrs:
+            data = getattr(obj, a)
+            if isinstance(data, basestring):
+                data = data.lower()
+            doc.update({a: data})
+
+        doc['country'] = ([obj.geo_country.name, obj.geo_country.code]
+                          if obj.geo_country else None)
+        doc['region'] = obj.geo_region.name if obj.geo_region else None
+        doc['city'] = obj.geo_city.name if obj.geo_city else None
+
+        # user data
+        attrs = ('username', 'email', 'last_login', 'date_joined')
+        for a in attrs:
+            data = getattr(obj.user, a)
+            if isinstance(data, basestring):
+                data = data.lower()
+            doc.update({a: data})
+
+        doc.update(dict(fullname=obj.full_name.lower()))
+        doc.update(dict(name=obj.full_name.lower()))
+        doc.update(dict(bio=obj.bio))
+        doc.update(dict(has_photo=bool(obj.photo)))
+
+        for attribute in ['groups', 'skills']:
+            groups = []
+            for g in getattr(obj, attribute).all():
+                groups.extend(g.aliases.values_list('name', flat=True))
+            doc[attribute] = groups
+        # Add to search index language code, language name in English
+        # native lanugage name.
+        languages = []
+        for code in obj.languages.values_list('code', flat=True):
+            languages.append(code)
+            languages.append(langcode_to_name(code, 'en_US').lower())
+            languages.append(langcode_to_name(code, code).lower())
+        doc['languages'] = list(set(languages))
+        return doc
+
+    @classmethod
+    def get_indexable(cls):
+        model = cls.get_model()
+        return model.objects.order_by('id').values_list('id', flat=True)
+
+    @classmethod
+    def search(cls, query, include_non_vouched=False, public=False):
+        """Sensible default search for UserProfiles."""
+        query = query.lower().strip()
+        fields = ('username', 'bio__match', 'email', 'ircname',
+                  'country__match', 'country__match_phrase',
+                  'region__match', 'region__match_phrase',
+                  'city__match', 'city__match_phrase',
+                  'fullname__match', 'fullname__match_phrase',
+                  'fullname__prefix', 'fullname__fuzzy'
+                  'groups__match')
+        search = PrivacyAwareS(cls)
+        if public:
+            search = search.privacy_level(PUBLIC)
+        search = search.indexes(cls.get_index(public))
+
+        if query:
+            query_dict = dict((field, query) for field in fields)
+            search = (search.boost(fullname__match_phrase=5, username=5,
+                                   email=5, ircname=5, fullname__match=4,
+                                   country__match_phrase=4,
+                                   region__match_phrase=4,
+                                   city__match_phrase=4, fullname__prefix=3,
+                                   fullname__fuzzy=2, bio__match=2)
+                      .query(or_=query_dict))
+
+        search = search.order_by('_score', 'name')
+
+        if not include_non_vouched:
+            search = search.filter(is_vouched=True)
+
+        return search
+
+    @classmethod
+    def bulk_index(cls, documents, id_field='id', es=None, public_index=False):
+        if es is None:
+            es = cls.get_es()
+
+        index = cls.get_index(public_index=False)
+
+        documents = (dict(d, _id=d[id_field]) for d in documents)
+        elasticsearc_bulk_index(es, documents, index=index,
+                                doc_type=cls.get_mapping_type_name(),
+                                raise_on_error=True)
+        cls.refresh_index(es=es)
+
+
 @receiver(dbsignals.post_save, sender=User,
           dispatch_uid='create_user_profile_sig')
 def create_user_profile(sender, instance, created, raw, **kwargs):
@@ -788,18 +828,21 @@ def update_basket(sender, instance, **kwargs):
           dispatch_uid='update_search_index_sig')
 def update_search_index(sender, instance, **kwargs):
     if instance.is_complete:
-        index_objects.delay(sender, [instance.id], public_index=False)
         if instance.is_public_indexable:
-            index_objects.delay(sender, [instance.id], public_index=True)
+            index_objects.delay(UserProfileMappingType, [instance.id],
+                                public_index=True)
         else:
-            unindex_objects.delay(UserProfile, [instance.id], public_index=True)
+            index_objects.delay(UserProfileMappingType, [instance.id],
+                                public_index=False)
 
 
 @receiver(dbsignals.pre_delete, sender=UserProfile,
           dispatch_uid='remove_from_search_index_sig')
 def remove_from_search_index(sender, instance, **kwargs):
-    unindex_objects.delay(UserProfile, [instance.id], public_index=False)
-    unindex_objects.delay(UserProfile, [instance.id], public_index=True)
+    unindex_objects.delay(UserProfileMappingType, [instance.id],
+                          public_index=False)
+    unindex_objects.delay(UserProfileMappingType, [instance.id],
+                          public_index=True)
 
 
 @receiver(dbsignals.pre_delete, sender=UserProfile,
