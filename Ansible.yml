@@ -1,0 +1,121 @@
+---
+- hosts: 127.0.0.1
+  connection: local
+
+  tasks:
+    - name: Install needed packages
+      apt: name={{ item }} state=present update_cache=yes cache_valid_time=300
+      with_items:
+        - python-virtualenv
+        - build-essential 
+        - python-dev 
+        - gettext 
+        - libjpeg-turbo8-dev
+        - mysql-client 
+        - mysql-server 
+        - libmysqlclient-dev
+        - subversion
+        - node
+        - npm
+        - libxslt1.1
+        - libxml2
+        - libxml2-dev
+        - libxslt1-dev
+        - openjdk-7-jre
+
+      tags:
+        - setup
+        - packages
+
+    - name: Install compiled python packages
+      pip: 
+        requirements={{ path }}/requirements/compiled.txt 
+        virtualenv={{ virtualenv_path }}
+      tags:
+        - setup
+        - packages
+
+    - name: Install development python packages
+      pip: 
+        requirements={{ path }}/requirements/dev.txt 
+        virtualenv={{ virtualenv_path }}
+      tags:
+        - setup
+        - packages
+      
+    - name: Check if ElasticSearch exists
+      stat: path={{ elasticsearch_path }}
+      register: elasticsearch_stat
+      tags:
+        - setup
+        - elasticsearch
+
+    - name: Install ElasticSearch
+      get_url:
+        url=https://download.elasticsearch.org/elasticsearch/elasticsearch/elasticsearch-0.90.10.tar.gz
+        dest=/root/elasticsearch.tar.gz
+      when: not elasticsearch_stat.stat.exists
+      tags:
+        - setup
+        - elasticsearch
+
+    - name: Extract ElasticSearch
+      unarchive: src=/tmp/elasticsearch.tar.gz dest={{ path }} copy=no
+      when: not elasticsearch_stat.stat.exists
+      tags:
+        - setup
+        - elasticsearch
+
+    - command: mv {{ path }}/elasticsearch-0.90.10 {{ path }}/elasticsearch 
+      tags:
+        - setup
+        - elasticsearch
+
+    - name: Delete temp files
+      command: rm /root/elasticsearch.tar.gz
+      when: not elasticsearch_stat.stat.exists
+      tags:
+        - setup
+        - elasticsearch
+
+    - name: Install npm packages
+      npm: name=less global=yes
+      tags: 
+        - setup
+        - packages
+
+    - name: Create mysql database
+      mysql_db: name=mozillians state=present
+      tags:
+        - setup
+        - config
+        - database
+
+    - name: Syncdb
+      django_manage: 
+        command=syncdb
+        app_path={{ django_path }}
+        virtualenv={{ virtualenv_path }}
+      tags:
+        - setup
+        - syncdb
+        - database
+
+    - name: Test Django
+      django_manage: 
+        command=test
+        app_path={{ django_path }}
+        virtualenv={{ virtualenv_path }}
+      # when: run_tests
+      tags:
+        - test
+
+  vars:
+    - path: {{ lookup('env', 'PWD') }}
+    - django_path: {{ path }}
+    - virtualenv_path: /root/venv
+    - elasticsearch_path: "{{ path }}/elasticsearch"
+  # vars_prompt:
+  #   - name: run_tests
+  #     prompt: "Run tests?"
+  #     default: False
