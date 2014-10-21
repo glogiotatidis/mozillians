@@ -4,6 +4,7 @@
 
   tasks:
     - name: Install needed packages
+      sudo: True
       apt: name={{ item }} state=present update_cache=yes cache_valid_time=300
       with_items:
         - python-virtualenv
@@ -15,7 +16,7 @@
         - mysql-server 
         - libmysqlclient-dev
         - subversion
-        - node
+        - nodejs
         - npm
         - libxslt1.1
         - libxml2
